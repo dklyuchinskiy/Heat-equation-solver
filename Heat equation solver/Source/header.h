@@ -3,7 +3,7 @@
 #include <math.h>
 #include <time.h>
 #include <omp.h>
-#include <mkl.h>
+#include <C:\Program Files (x86)\IntelSWTools\compilers_and_libraries_2018\windows\mkl\include\mkl.h>
 
 #define L    1.0
 #define T    1.0
@@ -14,14 +14,14 @@
 #define h     ((L)/(Nx))
 #define tau   ((T)/(Nt))
 
-#define eps 0.00005
+#define eps 0.0001
 #define CP 0.0001
 
 #define PI 	3.1415926535897932384626433832795
 
 #define OMP
 
-#define NOISE 0
+#define NOISE 1
 //#define ANALYTIC
 
 #define PROBLEM 1

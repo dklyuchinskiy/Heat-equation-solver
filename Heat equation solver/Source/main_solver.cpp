@@ -60,6 +60,13 @@ int main()
 	// For MKL run
 	int n = Nx + 1; // size of matrix
 	double* A3diag = new double[n*n];
+
+	// For RNG
+	double *rnd_vec1 = new double[Nt + 1];
+	double *rnd_vec2 = new double[Nt + 1];
+
+	VSLStreamStatePtr stream;
+	int status = 0;
 	
 
 	int lda = n;
@@ -144,17 +151,26 @@ int main()
 
 	// Data for continuation problem!
 #ifndef ANALYTIC
+
+	vslNewStream(&stream, VSL_BRNG_MT19937, Nt + 1);
+
+	status = vdRngUniform(VSL_RNG_METHOD_UNIFORM_STD_ACCURATE, stream, Nt + 1, rnd_vec1, -1, 1);
+	status = vdRngUniform(VSL_RNG_METHOD_UNIFORM_STD_ACCURATE, stream, Nt + 1, rnd_vec2, -1, 1);
+
+	vslDeleteStream(&stream);
+
+	//for (int i = 0; i < Nt + 1; i++)
+		//printf("%lf %lf\n", rnd_vec1[i], rnd_vec2[i]);
+
+	//system("pause");
 	
 #ifdef OMP
 #pragma omp parallel for simd num_threads(2)
 #endif
 	for (int j = 0; j < Nt + 1; j++)
 	{
-		rnd = rand1();
-		rnd2 = rand1();
-		if (rnd2 > 0.5) rnd -= 1;
-		f0[j] = u[0 + ldu*j] * (1.0 + NOISE*rnd / 100.0);
-		fL[j] = u[Nx + ldu*j] * (1.0 + NOISE*rnd / 100.0);
+		f0[j] = u[0 + ldu*j] * (1.0 + NOISE * rnd_vec1[j] / 100.0);
+		fL[j] = u[Nx + ldu*j] * (1.0 + NOISE * rnd_vec2[j] / 100.0);
 	}
 
 	if (Nx == 5)

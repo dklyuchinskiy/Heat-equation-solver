@@ -365,17 +365,17 @@ double* diff_vec(double* u1, double* u2, int size, int problem)
 	return rez;
 }
 
-double diff_mat(int m, int n, double* u1, double* u2, int ldu, double* rez, int problem)
+double diff_mat(int m, int n, double* u_sol, double* u_ex, int ldu, double* rez, int problem)
 {
-	int size = m*n;
+	int size = m * n;
 	int ione = 1;
 	for (int i = 0; i < m; i++)
 		for (int j = 0; j < n; j++)
-	{
-		rez[i+ldu*j] = u1[i+ldu*j] - u2[i+ldu*j];
-	}
+		{
+			rez[i + ldu * j] = u_sol[i + ldu * j] - u_ex[i + ldu * j];
+		}
 
-	double norm = dnrm2(&size, rez, &ione);
+	double norm = dnrm2(&size, rez, &ione) / dnrm2(&size, u_ex, &ione);
 
 	if (problem < 5) printf("\nSolution: |U_ex-U%d| = %20.17lf\n", problem, norm);
 
@@ -385,8 +385,8 @@ double diff_mat(int m, int n, double* u1, double* u2, int ldu, double* rez, int 
 	sprintf(FileName2, "Diff_DirProb_InvContProb2D_full_Ns%d.dat", (int)NOISE);
 	out2 = fopen(FileName2, "w");
 	for (int i = 0; i < m; i++)
-	for (int j = 0; j < n; j++)
-		fprintf(out2, "%.6d %.6d %17.10lf \n", i, j, fabs(rez[i + ldu*j]));
+		for (int j = 0; j < n; j++)
+			fprintf(out2, "%.6d %.6d %17.10lf \n", i, j, fabs(rez[i + ldu*j]));
 	fclose(out2);
 
 	sprintf(FileName2, "Diff_Mat_DirProb_InvContProb2D_full_Ns%d.dat", (int)NOISE);
@@ -833,6 +833,9 @@ void cont_prob_by_grad_meth(double *u_dir, int ldu_dir, double *u_ex, int ldu_ex
 	double *grad1 = new double[nx];
 	double *grad2 = new double[nt];
 
+	double *fi_exact = new double[nx];
+	double *gl_exact = new double[nt];
+
 	double *fi_diff = new double[nx];
 	double *gl_diff = new double[nt];
 
@@ -845,17 +848,37 @@ void cont_prob_by_grad_meth(double *u_dir, int ldu_dir, double *u_ex, int ldu_ex
 	int iter = 0;
 	double alpha1 = 0.5, alpha2 = 0.5;
 
-	// Initial aprroximation
-		
-	for (int i = 0; i < nx; i++)
+
+#pragma omp parallel
 	{
-		q0_fi[i] = f_data[0];
-		//q0_fi[i] = f_data[i];
-	}
-	for (int i = 0; i < nt; i++)
-	{
-		q1_gl[i] = 0.5;
-		//q1_gl[i] = gL_func(tau*i);
+		// Copy exact solution fi
+#pragma omp for simd schedule(simd:static)
+		for (int i = 0; i < nx; i++)
+		{
+			fi_exact[i] = fi_func(h*i);
+		}
+
+		// Copy exact solution gl
+#pragma omp for simd schedule(simd:static)
+		for (int i = 0; i < nt; i++)
+		{
+			gl_exact[i] = gL_func(tau*i);
+		}
+
+		// Initial aprroximation
+#pragma omp for simd schedule(simd:static)	
+		for (int i = 0; i < nx; i++)
+		{
+			q0_fi[i] = f_data[0];
+			//q0_fi[i] = f_data[i];
+		}
+
+#pragma omp for simd schedule(simd:static)	
+		for (int i = 0; i < nt; i++)
+		{
+			q1_gl[i] = 0.5;
+			//q1_gl[i] = gL_func(tau*i);
+		}
 	}
 
 	do
@@ -874,36 +897,45 @@ void cont_prob_by_grad_meth(double *u_dir, int ldu_dir, double *u_ex, int ldu_ex
 		// Compute gradient of the functional
 		gradient(u_adj, ldu_adj, grad1, grad2);
 
-		// Next step descent
-		for (int i = 0; i < nx; i++)
-		{
-			q0_fi[i] += alpha1 * grad1[i];
-		}
-		for (int i = 0; i < nt; i++)
-		{
-			q1_gl[i] += alpha2 * grad2[i];
-		}
-
 		// Compute functional
 		norm = functional(u_dir, ldu_dir, f_data);
 
 		// Compute difference norm between u_dir and u_ex
 		norm_sol = diff_mat(nx, nt, u_dir, u_ex, ldu_dir, u_diff, 5);
 
-		// Compute norm for jl and fi
-		for (int i = 0; i < nx; i++)
+#pragma omp parallel
 		{
-			fi_diff[i] = q0_fi[i] - fi_func(h*i);
-			gl_diff[i] = q1_gl[i] - gL_func(tau*i);
+			// Next step descent
+#pragma omp for simd schedule(simd:static)	
+			for (int i = 0; i < nx; i++)
+			{
+				q0_fi[i] += alpha1 * grad1[i];
+			}
+#pragma omp for simd schedule(simd:static)	
+			for (int i = 0; i < nt; i++)
+			{
+				q1_gl[i] += alpha2 * grad2[i];
+			}
+
+			// Compute norm for jl and fi
+#pragma omp for simd schedule(simd:static)		
+			for (int i = 0; i < nx; i++)
+			{
+				fi_diff[i] = q0_fi[i] - fi_exact[i];
+			}
+#pragma omp for simd schedule(simd:static)		
+			for (int i = 0; i < nt; i++)
+			{
+				gl_diff[i] = q1_gl[i] - gl_exact[i];
+			}
 		}
 
-		norm_fi = dnrm2(&nx, fi_diff, &one);
-		norm_gl = dnrm2(&nt, gl_diff, &one);
+		norm_fi = dnrm2(&nx, fi_diff, &one) / dnrm2(&nx, fi_exact, &one);
+		norm_gl = dnrm2(&nt, gl_diff, &one) / dnrm2(&nt, gl_exact, &one);
 
+		printf("\nIter: %d, func: %10.8lf  sol:%10.8lf  fi:%10.8lf  gl:%10.8lf\n", iter, norm, norm_sol, norm_fi, norm_gl);
 
-	//	printf("\nIter: %d, func: %10.8lf  sol:%10.8lf  fi:%10.8lf  gl:%10.8lf\n", iter, norm, norm_sol, norm_fi, norm_gl);
-
-		if (NOISE != 0 && norm_sol < 3.0) break;
+		//if (NOISE != 0 && norm_sol < 0.05) break;
 
 	} while (norm > eps);
 
@@ -926,6 +958,8 @@ void cont_prob_by_grad_meth(double *u_dir, int ldu_dir, double *u_ex, int ldu_ex
 	free(grad2);
 	free(fi_diff);
 	free(gl_diff);
+	free(fi_exact);
+	free(gl_exact);
 	free(u_adj);
 	free(u_diff);
 	free(J);
